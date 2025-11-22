@@ -321,6 +321,15 @@
       margin-top: 10px;
     }
 
+    .compression-info {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f0f4ff;
+      border-radius: 5px;
+      font-size: 12px;
+      color: #667eea;
+    }
+
     @media (max-width: 768px) {
       .container {
         padding: 25px;
@@ -429,7 +438,7 @@
 
       <div class="section">
         <label>용량 제한 설정 (Base64 길이 기준)</label>
-        <div class="limit-selector">
+        <div class="limit-selector" id="image-limit-selector">
           <button class="limit-btn" data-limit="50000">5만자 (~37KB)</button>
           <button class="limit-btn active" data-limit="100000">10만자 (~75KB)</button>
           <button class="limit-btn" data-limit="200000">20만자 (~150KB)</button>
@@ -441,10 +450,7 @@
       <div id="compress-alert" class="alert-box">
         <div class="alert-title">⚠️ 용량 초과 - 자동 압축 중</div>
         <div class="alert-message">이미지가 설정된 용량을 초과하여 자동으로 압축됩니다.</div>
-        <div style="margin-top: 10px;">
-          <label style="font-size: 13px; margin-bottom: 5px;">압축 품질: <span id="quality-value">80</span>%</label>
-          <input type="range" class="quality-slider" id="quality-slider" min="10" max="100" value="80" step="5">
-        </div>
+        <div class="compression-info" id="compression-info"></div>
       </div>
 
       <div class="info-box" id="image-encode-info" style="display: none;">
@@ -455,6 +461,10 @@
         <div class="info-row">
           <span class="info-label">원본 크기:</span>
           <span class="info-value" id="original-size">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">압축 후 크기:</span>
+          <span class="info-value" id="compressed-size">-</span>
         </div>
         <div class="info-row">
           <span class="info-label">Base64 길이:</span>
@@ -529,8 +539,19 @@
       document.getElementById(tabId).classList.add('active');
     }
 
-    // 용량 제한 버튼
-    document.querySelectorAll('.limit-btn').forEach(btn => {
+    // 용량 제한 버튼 (텍스트)
+    document.querySelectorAll('#text-encode .limit-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        this.parentElement.querySelectorAll('.limit-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        
+        // 텍스트 입력 이벤트 트리거
+        document.getElementById('text-input').dispatchEvent(new Event('input'));
+      });
+    });
+
+    // 용량 제한 버튼 (이미지)
+    document.querySelectorAll('#image-limit-selector .limit-btn').forEach(btn => {
       btn.addEventListener('click', function() {
         this.parentElement.querySelectorAll('.limit-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
@@ -543,19 +564,19 @@
       });
     });
 
-    // 품질 슬라이더
-    document.getElementById('quality-slider').addEventListener('input', function() {
-      document.getElementById('quality-value').textContent = this.value;
-      if (currentFile) {
-        processFile(currentFile);
-      }
-    });
-
     // 텍스트 입력 모니터링
     document.getElementById('text-input').addEventListener('input', function() {
       const text = this.value;
       const inputLength = text.length;
       const base64Length = Math.ceil(inputLength * 4 / 3);
+      
+      const textLimitBtns = document.querySelectorAll('#text-encode .limit-btn');
+      let textLimit = -1;
+      textLimitBtns.forEach(btn => {
+        if (btn.classList.contains('active')) {
+          textLimit = parseInt(btn.dataset.limit);
+        }
+      });
       
       const infoBox = document.getElementById('text-encode-info');
       const rows = infoBox.querySelectorAll('.info-row');
@@ -563,7 +584,7 @@
       rows[0].querySelector('.info-value').textContent = inputLength.toLocaleString() + '자';
       rows[1].querySelector('.info-value').textContent = base64Length.toLocaleString() + '자';
       
-      if (currentLimit > 0 && base64Length > currentLimit) {
+      if (textLimit > 0 && base64Length > textLimit) {
         rows[2].querySelector('.info-value').innerHTML = '<span class="warning">✗ 용량 제한 초과</span>';
       } else {
         rows[2].querySelector('.info-value').innerHTML = '<span class="success">✓ 변환 가능</span>';
@@ -580,8 +601,16 @@
 
       const base64 = btoa(unescape(encodeURIComponent(text)));
       
-      if (currentLimit > 0 && base64.length > currentLimit) {
-        alert(`Base64 길이가 ${currentLimit.toLocaleString()}자를 초과합니다!\n현재: ${base64.length.toLocaleString()}자\n\n텍스트를 줄이거나 용량 제한을 늘려주세요.`);
+      const textLimitBtns = document.querySelectorAll('#text-encode .limit-btn');
+      let textLimit = -1;
+      textLimitBtns.forEach(btn => {
+        if (btn.classList.contains('active')) {
+          textLimit = parseInt(btn.dataset.limit);
+        }
+      });
+      
+      if (textLimit > 0 && base64.length > textLimit) {
+        alert(`Base64 길이가 ${textLimit.toLocaleString()}자를 초과합니다!\n현재: ${base64.length.toLocaleString()}자\n\n텍스트를 줄이거나 용량 제한을 늘려주세요.`);
         return;
       }
 
@@ -638,7 +667,7 @@
       }
     });
 
-    // 파일 처리 (자동 압축 포함)
+    // 파일 처리 (개선된 압축 로직)
     function processFile(file) {
       const reader = new FileReader();
       
@@ -648,7 +677,7 @@
 
       reader.onprogress = (e) => {
         if (e.lengthComputable) {
-          const percent = (e.loaded / e.total) * 50; // 50%까지는 로딩
+          const percent = (e.loaded / e.total) * 30;
           document.getElementById('progress-fill').style.width = percent + '%';
         }
       };
@@ -656,7 +685,8 @@
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          compressImage(img, file);
+          document.getElementById('progress-fill').style.width = '50%';
+          compressImageAdvanced(img, file);
         };
         img.src = e.target.result;
       };
@@ -664,54 +694,77 @@
       reader.readAsDataURL(file);
     }
 
-    // 이미지 압축
-    function compressImage(img, file) {
+    // 개선된 이미지 압축 알고리즘
+    function compressImageAdvanced(img, file) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
       let width = img.width;
       let height = img.height;
+      let base64 = '';
+      let compressionSteps = [];
       
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      const quality = parseInt(document.getElementById('quality-slider').value) / 100;
-      let base64 = canvas.toDataURL('image/jpeg', quality);
-      
-      // 용량 제한 체크 및 자동 압축
       const alertBox = document.getElementById('compress-alert');
+      const compressionInfo = document.getElementById('compression-info');
       
-      if (currentLimit > 0 && base64.length > currentLimit) {
-        alertBox.classList.add('show');
+      // 용량 제한이 없는 경우
+      if (currentLimit <= 0) {
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        base64 = canvas.toDataURL('image/jpeg', 0.92);
+        alertBox.classList.remove('show');
+      } else {
+        // 1단계: 초기 크기 조정 (Base64 길이 기준으로 예측)
+        const estimatedBase64Length = (file.size * 4 / 3) * 1.4; // 여유있게 예측
         
-        // 자동으로 용량에 맞게 압축
-        let currentQuality = quality;
+        if (estimatedBase64Length > currentLimit) {
+          // 크기를 먼저 줄임
+          const sizeRatio = Math.sqrt(currentLimit / estimatedBase64Length) * 0.9;
+          width = Math.floor(img.width * sizeRatio);
+          height = Math.floor(img.height * sizeRatio);
+          compressionSteps.push(`크기 조정: ${img.width}x${img.height} → ${width}x${height}`);
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 2단계: 품질 조정으로 미세 조정
+        let quality = 0.92;
+        base64 = canvas.toDataURL('image/jpeg', quality);
         let attempts = 0;
-        const maxAttempts = 10;
+        const maxAttempts = 15;
         
-        while (base64.length > currentLimit && attempts < maxAttempts && currentQuality > 0.1) {
-          currentQuality -= 0.1;
-          base64 = canvas.toDataURL('image/jpeg', currentQuality);
+        while (base64.length > currentLimit && attempts < maxAttempts) {
+          if (base64.length > currentLimit * 1.5) {
+            // 용량이 많이 초과하면 크기를 더 줄임
+            width = Math.floor(width * 0.9);
+            height = Math.floor(height * 0.9);
+            canvas.width = width;
+            canvas.height = height;
+            ctx.drawImage(img, 0, 0, width, height);
+            quality = 0.85;
+            compressionSteps.push(`추가 크기 조정: ${width}x${height}`);
+          } else {
+            // 용량이 조금 초과하면 품질만 조정
+            quality -= 0.05;
+          }
+          
+          base64 = canvas.toDataURL('image/jpeg', quality);
           attempts++;
         }
         
-        // 그래도 크면 크기 조정
-        if (base64.length > currentLimit) {
-          const ratio = Math.sqrt(currentLimit / base64.length);
-          width = Math.floor(img.width * ratio);
-          height = Math.floor(img.height * ratio);
-          
-          canvas.width = width;
-          canvas.height = height;
-          ctx.drawImage(img, 0, 0, width, height);
-          base64 = canvas.toDataURL('image/jpeg', 0.8);
-        }
+        compressionSteps.push(`최종 품질: ${Math.round(quality * 100)}%`);
+        compressionSteps.push(`압축 시도: ${attempts}회`);
         
-        document.getElementById('quality-slider').value = Math.round(currentQuality * 100);
-        document.getElementById('quality-value').textContent = Math.round(currentQuality * 100);
-      } else {
-        alertBox.classList.remove('show');
+        // 압축 정보 표시
+        if (base64.length > currentLimit * 0.8) {
+          alertBox.classList.add('show');
+          compressionInfo.innerHTML = compressionSteps.join('<br>');
+        } else {
+          alertBox.classList.remove('show');
+        }
       }
       
       currentBase64 = base64;
@@ -723,6 +776,10 @@
       
       document.getElementById('file-name').textContent = file.name;
       document.getElementById('original-size').textContent = formatFileSize(file.size);
+      
+      // Base64에서 실제 이미지 크기 계산
+      const base64Size = Math.floor((base64.length - base64.indexOf(',') - 1) * 3 / 4);
+      document.getElementById('compressed-size').textContent = formatFileSize(base64Size);
       document.getElementById('base64-length').textContent = base64.length.toLocaleString() + '자';
       
       const limitText = currentLimit > 0 ? currentLimit.toLocaleString() + '자' : '제한 없음';
@@ -732,11 +789,14 @@
       const percentage = currentLimit > 0 ? Math.round((base64.length / currentLimit) * 100) : 0;
       
       if (currentLimit > 0 && base64.length > currentLimit) {
-        statusEl.innerHTML = '<span class="warning">✗ 압축 실패 (' + percentage + '%)</span>';
+        statusEl.innerHTML = '<span class="warning">✗ 압축 실패 (' + percentage + '%) - 용량 제한을 늘려주세요</span>';
+        alertBox.classList.add('show');
+        alertBox.classList.add('error');
       } else if (currentLimit > 0 && base64.length > currentLimit * 0.9) {
         statusEl.innerHTML = '<span class="warning">⚠ 용량 근접 (' + percentage + '%)</span>';
       } else {
-        statusEl.innerHTML = '<span class="success">✓ 변환 완료 (' + percentage + '%)</span>';
+        statusEl.innerHTML = '<span class="success">✓ 변환 완료' + (currentLimit > 0 ? ' (' + percentage + '%)' : '') + '</span>';
+        alertBox.classList.remove('error');
       }
       
       document.getElementById('progress-fill').style.width = '100%';
@@ -830,6 +890,9 @@
     // 초기화
     function clearText(elementId) {
       document.getElementById(elementId).value = '';
+      if (elementId === 'text-input') {
+        document.getElementById('text-input').dispatchEvent(new Event('input'));
+      }
     }
 
     function clearImage() {
@@ -839,9 +902,8 @@
       document.getElementById('image-base64-output').value = '';
       document.getElementById('image-encode-info').style.display = 'none';
       document.getElementById('compress-alert').classList.remove('show');
+      document.getElementById('compress-alert').classList.remove('error');
       document.getElementById('progress-fill').style.width = '0%';
-      document.getElementById('quality-slider').value = 80;
-      document.getElementById('quality-value').textContent = 80;
       currentBase64 = '';
       currentImageData = null;
       currentFile = null;
