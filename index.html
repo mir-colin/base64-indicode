@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Base64 인코더/디코더</title>
+  <title>Base64 인코더/디코더 (품질 압축)</title>
   <style>
     * {
       margin: 0;
@@ -347,7 +347,7 @@
 <body>
   <div class="container">
     <h1>🔄 Base64 인코더/디코더</h1>
-    <p class="subtitle">텍스트와 이미지를 Base64로 변환하거나 디코딩하세요 (강제 압축 지원)</p>
+    <p class="subtitle">텍스트와 이미지를 Base64로 변환하거나 디코딩하세요 (품질 압축 - 크기 유지)</p>
 
     <div class="tabs">
       <button class="tab active" onclick="switchTab('text-encode')">텍스트 → Base64</button>
@@ -427,7 +427,7 @@
           <input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)">
           <div class="file-icon">📁</div>
           <div class="file-text">클릭하거나 이미지를 드래그하세요</div>
-          <div class="file-text" style="margin-top: 5px; font-size: 12px; color: #999;">JPG, PNG, GIF, WebP 지원 (강제 압축)</div>
+          <div class="file-text" style="margin-top: 5px; font-size: 12px; color: #999;">JPG, PNG, GIF, WebP 지원 (원본 크기 유지, 품질만 압축)</div>
         </div>
       </div>
 
@@ -443,8 +443,8 @@
       </div>
 
       <div id="compress-alert" class="alert-box">
-        <div class="alert-title">⚠️ 강제 압축 진행 중</div>
-        <div class="alert-message">이미지를 설정된 용량 제한 내로 강제 압축하고 있습니다.</div>
+        <div class="alert-title">⚠️ 품질 압축 진행 중</div>
+        <div class="alert-message">이미지 크기는 유지하고 품질만 낮춰서 용량 제한에 맞춥니다.</div>
         <div class="compression-info" id="compression-info"></div>
       </div>
 
@@ -454,12 +454,20 @@
           <span class="info-value" id="file-name">-</span>
         </div>
         <div class="info-row">
+          <span class="info-label">이미지 크기:</span>
+          <span class="info-value" id="image-dimensions">-</span>
+        </div>
+        <div class="info-row">
           <span class="info-label">원본 크기:</span>
           <span class="info-value" id="original-size">-</span>
         </div>
         <div class="info-row">
           <span class="info-label">압축 후 크기:</span>
           <span class="info-value" id="compressed-size">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">압축 품질:</span>
+          <span class="info-value" id="quality-level">-</span>
         </div>
         <div class="info-row">
           <span class="info-label">Base64 길이:</span>
@@ -524,6 +532,7 @@
     let currentBase64 = '';
     let currentImageData = null;
     let currentFile = null;
+    let finalQuality = 0;
 
     // 탭 전환
     function switchTab(tabId) {
@@ -540,7 +549,6 @@
         this.parentElement.querySelectorAll('.limit-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         
-        // 텍스트 입력 이벤트 트리거
         document.getElementById('text-input').dispatchEvent(new Event('input'));
       });
     });
@@ -552,7 +560,6 @@
         this.classList.add('active');
         currentLimit = parseInt(this.dataset.limit);
         
-        // 이미 파일이 로드되어 있으면 다시 처리
         if (currentFile) {
           processFile(currentFile);
         }
@@ -681,7 +688,7 @@
         const img = new Image();
         img.onload = () => {
           document.getElementById('progress-fill').style.width = '50%';
-          forceCompressImage(img, file);
+          compressImageQualityOnly(img, file);
         };
         img.src = e.target.result;
       };
@@ -689,13 +696,19 @@
       reader.readAsDataURL(file);
     }
 
-    // 강제 압축 알고리즘 (무조건 용량 제한 내로 압축)
-    function forceCompressImage(img, file) {
+    // 품질만 조정하는 압축 알고리즘 (크기 유지)
+    function compressImageQualityOnly(img, file) {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
-      let width = img.width;
-      let height = img.height;
+      // 원본 크기 유지
+      const width = img.width;
+      const height = img.height;
+      
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+      
       let base64 = '';
       let compressionSteps = [];
       
@@ -704,85 +717,60 @@
       
       // 용량 제한이 없는 경우
       if (currentLimit <= 0) {
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
         base64 = canvas.toDataURL('image/jpeg', 0.92);
+        finalQuality = 92;
         alertBox.classList.remove('show');
+        compressionSteps.push(`원본 품질 유지: ${width}x${height}, 품질 92%`);
       } else {
         alertBox.classList.add('show');
         alertBox.classList.remove('error');
+        alertBox.classList.add('success');
         
-        // 1단계: 초기 크기를 공격적으로 줄임
-        const targetSize = currentLimit * 0.95; // 95%로 여유 확보
-        const estimatedBase64Length = (file.size * 4 / 3) * 1.4;
+        const targetSize = currentLimit * 0.98; // 98%로 여유 확보
         
-        if (estimatedBase64Length > targetSize) {
-          const sizeRatio = Math.sqrt(targetSize / estimatedBase64Length) * 0.7; // 더 공격적으로
-          width = Math.max(Math.floor(img.width * sizeRatio), 50); // 최소 50px
-          height = Math.max(Math.floor(img.height * sizeRatio), 50);
-          compressionSteps.push(`1단계 크기 조정: ${img.width}x${img.height} → ${width}x${height}`);
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        // 2단계: 품질을 낮춰가며 강제 압축
-        let quality = 0.9;
-        let minQuality = 0.1;
+        // 품질만 조정하며 압축
+        let quality = 0.95;
+        let minQuality = 0.01; // 최소 1%까지 허용
         let attempts = 0;
-        const maxAttempts = 50; // 시도 횟수 증가
+        const maxAttempts = 100;
         
         base64 = canvas.toDataURL('image/jpeg', quality);
+        compressionSteps.push(`시작: ${width}x${height}, 품질 ${Math.round(quality * 100)}%, ${base64.length.toLocaleString()}자`);
         
-        while (base64.length > targetSize && attempts < maxAttempts) {
+        while (base64.length > targetSize && attempts < maxAttempts && quality > minQuality) {
           attempts++;
           
-          if (base64.length > targetSize * 2) {
-            // 용량이 2배 이상 초과하면 크기를 더 줄임
-            width = Math.max(Math.floor(width * 0.8), 50);
-            height = Math.max(Math.floor(height * 0.8), 50);
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, 0, 0, width, height);
-            quality = 0.7;
-            compressionSteps.push(`${attempts}회: 크기 축소 ${width}x${height}`);
-          } else if (base64.length > targetSize * 1.5) {
-            // 용량이 1.5배 초과하면 크기와 품질 모두 조정
-            width = Math.max(Math.floor(width * 0.9), 50);
-            height = Math.max(Math.floor(height * 0.9), 50);
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, 0, 0, width, height);
-            quality = Math.max(quality - 0.1, minQuality);
-            compressionSteps.push(`${attempts}회: 크기+품질 조정 ${width}x${height}, ${Math.round(quality * 100)}%`);
+          // 초과 비율에 따라 품질 감소폭 조정
+          const overRatio = base64.length / targetSize;
+          
+          if (overRatio > 3) {
+            // 3배 이상 초과: 품질 대폭 감소
+            quality = Math.max(quality * 0.5, minQuality);
+            compressionSteps.push(`${attempts}회: 대폭 감소 → 품질 ${Math.round(quality * 100)}%`);
+          } else if (overRatio > 2) {
+            // 2배 이상 초과: 품질 중간 감소
+            quality = Math.max(quality * 0.7, minQuality);
+            compressionSteps.push(`${attempts}회: 중간 감소 → 품질 ${Math.round(quality * 100)}%`);
+          } else if (overRatio > 1.5) {
+            // 1.5배 이상 초과: 품질 조금 감소
+            quality = Math.max(quality * 0.85, minQuality);
+            compressionSteps.push(`${attempts}회: 조금 감소 → 품질 ${Math.round(quality * 100)}%`);
           } else {
-            // 용량이 조금 초과하면 품질만 조정
+            // 조금 초과: 품질 미세 조정
             quality = Math.max(quality - 0.05, minQuality);
-            compressionSteps.push(`${attempts}회: 품질 조정 ${Math.round(quality * 100)}%`);
+            compressionSteps.push(`${attempts}회: 미세 조정 → 품질 ${Math.round(quality * 100)}%`);
           }
           
           base64 = canvas.toDataURL('image/jpeg', quality);
-          
-          // 최소 품질에 도달했는데도 용량 초과하면 크기를 더 줄임
-          if (quality <= minQuality && base64.length > targetSize) {
-            width = Math.max(Math.floor(width * 0.85), 30);
-            height = Math.max(Math.floor(height * 0.85), 30);
-            canvas.width = width;
-            canvas.height = height;
-            ctx.drawImage(img, 0, 0, width, height);
-            quality = minQuality;
-            compressionSteps.push(`${attempts}회: 최소 크기 조정 ${width}x${height}`);
-          }
           
           // 진행률 업데이트
           const progress = 50 + (attempts / maxAttempts) * 50;
           document.getElementById('progress-fill').style.width = progress + '%';
         }
         
-        compressionSteps.push(`최종: ${width}x${height}, 품질 ${Math.round(quality * 100)}%, ${attempts}회 시도`);
-        compressionInfo.innerHTML = compressionSteps.slice(-5).join('<br>'); // 마지막 5개만 표시
+        finalQuality = Math.round(quality * 100);
+        compressionSteps.push(`최종: ${width}x${height}, 품질 ${finalQuality}%, ${base64.length.toLocaleString()}자, ${attempts}회 시도`);
+        compressionInfo.innerHTML = compressionSteps.slice(-5).join('<br>');
       }
       
       currentBase64 = base64;
@@ -793,11 +781,13 @@
       infoBox.style.display = 'block';
       
       document.getElementById('file-name').textContent = file.name;
+      document.getElementById('image-dimensions').textContent = `${width} x ${height} px`;
       document.getElementById('original-size').textContent = formatFileSize(file.size);
       
       // Base64에서 실제 이미지 크기 계산
       const base64Size = Math.floor((base64.length - base64.indexOf(',') - 1) * 3 / 4);
       document.getElementById('compressed-size').textContent = formatFileSize(base64Size);
+      document.getElementById('quality-level').textContent = finalQuality + '%';
       document.getElementById('base64-length').textContent = base64.length.toLocaleString() + '자';
       
       const limitText = currentLimit > 0 ? currentLimit.toLocaleString() + '자' : '제한 없음';
@@ -809,13 +799,20 @@
       if (currentLimit > 0 && base64.length > currentLimit) {
         statusEl.innerHTML = '<span class="warning">⚠ 압축 완료 (용량 약간 초과: ' + percentage + '%)</span>';
         alertBox.classList.add('show');
+        alertBox.classList.remove('success');
+        alertBox.classList.add('error');
       } else if (currentLimit > 0 && base64.length > currentLimit * 0.95) {
         statusEl.innerHTML = '<span class="success">✓ 압축 완료 (용량 최적화: ' + percentage + '%)</span>';
         alertBox.classList.add('show');
         alertBox.classList.add('success');
       } else {
         statusEl.innerHTML = '<span class="success">✓ 변환 완료' + (currentLimit > 0 ? ' (' + percentage + '%)' : '') + '</span>';
-        alertBox.classList.remove('show');
+        if (currentLimit > 0) {
+          alertBox.classList.add('show');
+          alertBox.classList.add('success');
+        } else {
+          alertBox.classList.remove('show');
+        }
       }
       
       document.getElementById('progress-fill').style.width = '100%';
@@ -927,6 +924,7 @@
       currentBase64 = '';
       currentImageData = null;
       currentFile = null;
+      finalQuality = 0;
     }
   </script>
 </body>
